@@ -39,7 +39,7 @@ nngt.seed(0)
 
 ''' Runtime options'''
 plot_distribution = False # plot of the connectivity distribution
-plot_graphs = True # graphic output of spatial network
+plot_graphs = False # graphic output of spatial network
 simulate_activity =  True # whether to run or not a NEST simlation on the model
 sim_duration = 2000 # simulation duration in ms
 plot_activity = True # wheter to plot simulation activity
@@ -263,7 +263,7 @@ def with_obstacles(shape,params = {"height": 250., "width": 250.},filling_fracti
         if num_top:
             pop.create_group(group_name, num_top, neuron_model="aeif_psc_alpha", 
                             neuron_param=params1)
- 
+
     # make the graph
     net = nngt.SpatialGraph(shape=shape, population=pop)
   
@@ -326,7 +326,7 @@ def with_obstacles(shape,params = {"height": 250., "width": 250.},filling_fracti
         neurons   = top_neurons[contained]
         other_top = [n for n in top_neurons if n not in neurons]
         print(name)
-        #print(neurons)
+        # print(neurons)
         if np.any(neurons):
             # connect intra-area
             nngt.generation.connect_nodes(net, neurons, neurons, "distance_rule",
@@ -363,7 +363,6 @@ def with_obstacles(shape,params = {"height": 250., "width": 250.},filling_fracti
     # Simulate with NEST 
     activity_simulation(net,pop,sim_duration)  
  
-
 ###################################################################################
 def no_obstacles(shape):
     '''
