@@ -29,7 +29,7 @@ import matplotlib.pyplot as plt
 import nngt
 from nngt.geometry import Shape
 
-# ~ nngt.use_backend("networkx")
+nngt.use_backend("networkx")
 #nngt.use_backend("graph-tool")
 
 # nngt.set_config({"omp": 8, "palette": 'RdYlBu'})
@@ -230,7 +230,7 @@ def with_obstacles(shape,params = {"height": 250., "width": 250.},filling_fracti
         neurons   = top_neurons[contained]
         other_top = [n for n in top_neurons if n not in neurons]
         print(name)
-        print(neurons)
+        #print(neurons)
         if np.any(neurons):
             # connect intra-area
             nngt.generation.connect_nodes(net, neurons, neurons, "distance_rule",
