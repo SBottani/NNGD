@@ -336,7 +336,16 @@ def with_obstacles(shape, params={"height": 250., "width": 250.}, filling_fracti
         contained = area.contains_neurons(bottom_pos)
         neurons = bottom_neurons[contained]
 
-        nngt.generation.connect_nodes(net, bottom_neurons, bottom_neurons,
+        # 2018 03 51 I think the use of "bottom_neurons" below is erroneous
+        # it should be "neurons" as defined above, the neurons in the contained
+        # area.
+        # Indeed shape.default_areas.items() is a list with diferent disjoint
+        # we want to prevent connections between non communicating areas
+        # at the bottom bottom areas
+        # nngt.generation.connect_nodes(net, bottom_neurons, bottom_neurons,
+        #                               "distance_rule", scale=bottom_scale,
+        #                               max_proba=base_proba)
+        nngt.generation.connect_nodes(net, neurons, neurons,
                                       "distance_rule", scale=bottom_scale,
                                       max_proba=base_proba)
     # connect top areas
@@ -459,25 +468,23 @@ def with_obstacles_EI(shape, params={"height": 250., "width": 250.},
     pop.create_group("bottom_I", num_bottom_I, neuron_model="aeif_psc_alpha",
                      neuron_param=params1)
 
-    # Create groups for excitatory  neurons on each top area
-    for num_top_E, (name, top_area) in zip(num_top_list_E,
-                                           shape.non_default_areas.items()):
-        #num_top = int(density * top_area.area)
-        group_name = "top_E_" + name
-        if num_top_E:
-            pop.create_group(group_name, num_top_E,
-                             neuron_model="aeif_psc_alpha",
-                             neuron_param=params1)
+    # Create groups at the top
+    def create_top_groups(group_name_prefix, num_top_list, model, params):
+        ''' Creation of neurons groups on the top of bastacles'''
+        for num_top, (name, top_area) in,\
+                zip(num_top_list, shape.non_default_areas.items()):
+            # num_top = int(density * top_area.area)
+            group_name = group_name_prefix + name
+            if num_top:
+                pop.create_group(group_name, num_top,
+                                 neuron_model=model,
+                                 neuron_param=params)
 
-    # Create groups for  inhibitory neurons on each top area
-    for num_top_I, (name, top_area) in zip(num_top_list_I,
-                                           shape.non_default_areas.items()):
-        #num_top = int(density * top_area.area)
-        group_name = "top_I_" + name
-        if num_top_I:
-            pop.create_group(group_name, num_top_I,
-                             neuron_model="aeif_psc_alpha",
-                             neuron_param=params1)
+    # Create groups for excitatory  neurons on each top area
+    create_top_groups("top_E_", num_top_list_E, "aeif_psc_alpha", params1)
+    # Create groups for  inhibitory neurons on each top are
+    create_top_groups("top_I_", num_top_list_I, "aeif_psc_alpha", params1)
+
     # make the graph
     net = nngt.SpatialGraph(shape=shape, population=pop)
 
@@ -541,9 +548,9 @@ def with_obstacles_EI(shape, params={"height": 250., "width": 250.},
 
     # base connectivity probability
     base_proba = 3.
-    p_up = 0.6
-    p_down = 0.9
-    p_other_up = p_down**2
+    p_up = 0.6  # modulation for connection bottom to top
+    p_down = 0.9  # modulation for connection top to bottom
+    p_other_up = p_down**2  # modulation connection top to top at the bottom
     print "Connectivity basic probability {0}".format(base_proba)
     print "Up connexion probability on one shape {0}".format(p_up)
     print "Down connexion probability {0}".format(p_down)
@@ -551,13 +558,17 @@ def with_obstacles_EI(shape, params={"height": 250., "width": 250.},
     .format(p_other_up)
 
     # connect bottom area
-    for name, area in shape.default_areas.items():
-        contained = area.contains_neurons(bottom_pos)
-        neurons = bottom_neurons[contained]
+    def connect_bottom(bottom_pos):
+        ''' Connect bottom neurons'''
 
-        nngt.generation.connect_nodes(net, bottom_neurons, bottom_neurons,
-                                      "distance_rule", scale=bottom_scale,
-                                      max_proba=base_proba)
+        for name, area in shape.default_areas.items():
+            contained = area.contains_neurons(bottom_pos)
+            neurons = bottom_neurons[contained]
+
+            nngt.generation.connect_nodes(net, neurons, neurons,
+                                          "distance_rule", scale=bottom_scale,
+                                          max_proba=base_proba)
+    connect_bottom(bottom_pos_E)
 
     # connect top areas
     print("Connect top areas")
