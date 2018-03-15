@@ -489,35 +489,37 @@ def with_obstacles_EI(shape, params={"height": 250., "width": 250.},
     net = nngt.SpatialGraph(shape=shape, population=pop)
 
     # seed neurons
-    def seed_bottom_neurons(num_bottom, group_name):
+    def seed_bottom_neurons(num_bottom, group_name, neuron_type):
         ''' Seed botoom neurons'''
         bottom_pos = shape.seed_neurons(num_bottom,
                                         on_area=shape.default_areas,
                                         soma_radius=15)
         bottom_neurons = np.array(net.new_node(num_bottom,
                                   positions=bottom_pos,
-                                  groups=group_name), dtype=int)
+                                  groups=group_name,ntype=neuron_type), dtype=int)
         return bottom_pos, bottom_neurons
 
     bottom_pos_E, bottom_neurons_E = seed_bottom_neurons(num_bottom_E,
-                                                         "bottom_E")
+                                                         "bottom_E",
+                                                         neuron_type=1)
     bottom_pos_I, bottom_neurons_I = seed_bottom_neurons(num_bottom_I,
-                                                         "bottom_I")
+                                                         "bottom_I",
+                                                         neuron_type=-1)
 
-    def seed_top_neurons(group_name_prefix, top_pos, top_neurons,
-                         top_groups_name_list):
+    def seed_top_neurons(grp_name_prefix, top_pos, top_neurons,
+                         top_grp_name_list, ntype):
         ''' Seed top neurons'''
         for name, top_area in shape.non_default_areas.items():
-            group_name = group_name_prefix + name
-            if group_name in pop:
+            grp_name = grp_name_prefix + name
+            if grp_name in pop:
                 # number of neurons in the top group
-                num_top = pop[group_name].size
+                num_top = pop[grp_name].size
                 # locate num_top neurons in the group area
                 top_pos_tmp = top_area.seed_neurons(num_top, soma_radius=15)
                 top_pos.extend(top_pos_tmp)
                 top_neurons.extend(net.new_node(num_top, positions=top_pos_tmp,
-                                                groups=group_name))
-                top_groups_name_list.append(group_name)
+                                                groups=grp_name, ntype=ntype))
+                top_grp_name_list.append(group_name)
         top_pos = np.array(top_pos)
         top_neurons = np.array(top_neurons, dtype=int)
 
@@ -525,12 +527,15 @@ def with_obstacles_EI(shape, params={"height": 250., "width": 250.},
     top_neurons_E = []
     top_groups_name_list_E = []
     seed_top_neurons("top_E_", top_pos_E, top_neurons_E,
-                     top_groups_name_list_E)
+                     top_groups_name_list_E, neuron_type=1)
     top_pos_I = []
     top_neurons_I = []
     top_groups_name_list_I = []
     seed_top_neurons("top_I_", top_pos_I, top_neurons_I,
-                     top_groups_name_list_I)
+                     top_groups_name_list_I, neuron_type=-1)
+
+    # total top neurons groups list
+    top_groups_name_list = top_groups_name_list_E.extend(top_groups_name_list_I)
 
     # Establishment of the connectivity
     # scales for the connectivity distance function.
@@ -557,45 +562,116 @@ def with_obstacles_EI(shape, params={"height": 250., "width": 250.},
     print "Between two different up shapes connexion probability {0}"
     .format(p_other_up)
 
-    # connect bottom area
-    def connect_bottom(bottom_pos):
-        ''' Connect bottom neurons'''
+    # connect neurons in bottom areas
+    print("Connect bottom areas")
 
+    def connect_bottom(neurons_out, pos_out, neurons_in, pos_in,
+                       scale=bottom_scale, max_proba=base_proba):
+        ''' Connect bottom neurons
+            connections are only established within continuously connected
+            areas
+        '''
         for name, area in shape.default_areas.items():
-            contained = area.contains_neurons(bottom_pos)
-            neurons = bottom_neurons[contained]
+            contained = area.contains_neurons(pos_out)
+            neurons_out = neurons_out[contained]
+            contained = area.contains_neurons(pos_in)
+            neurons_in = neurons_in[contained]
 
-            nngt.generation.connect_nodes(net, neurons, neurons,
-                                          "distance_rule", scale=bottom_scale,
-                                          max_proba=base_proba)
-    connect_bottom(bottom_pos_E)
+            nngt.generation.connect_nodes(net, neurons_out, neurons_in,
+                                          "distance_rule", scale=scale,
+                                          max_proba=max_proba)
+
+    # Connect bottom excitatory to bottom excitatory
+    connect_bottom(bottom_neurons_E, bottom_pos_E,
+                   bottom_neurons_E, bottom_pos_E)
+    # Connect bottom excitatory to bottom inhibitory
+    connect_bottom(bottom_neurons_E, bottom_pos_E,
+                   bottom_neurons_I, bottom_pos_I)
+    # Connect bottom inhibitory to bottom excitatory
+    connect_bottom(bottom_neurons_I, bottom_pos_I,
+                   bottom_neurons_E, bottom_pos_E)
+    # Connect bottom inhibitory to bottom inhibitory
+    connect_bottom(bottom_neurons_I, bottom_pos_I,
+                   bottom_neurons_I, bottom_pos_I)
 
     # connect top areas
-    print("Connect top areas")
-    for name, area in shape.non_default_areas.items():
-        contained = area.contains_neurons(top_pos)
-        neurons = top_neurons[contained]
-        other_top = [n for n in top_neurons if n not in neurons]
-        print(name)
-        # print(neurons)
-        if np.any(neurons):
-            # connect intra-area
-            nngt.generation.connect_nodes(net, neurons, neurons,
-                                          "distance_rule",
-                                          scale=top_scale, max_proba=base_proba)
-            # connect between top areas (do it?)
-            nngt.generation.connect_nodes(net, neurons, other_top,
-                                          "distance_rule",
-                                          scale=mixed_scale,
-                                          max_proba=base_proba*p_other_up)
-            # connect top to bottom
-            nngt.generation.connect_nodes(net, neurons, bottom_neurons,
-                                          "distance_rule", scale=mixed_scale,
-                                          max_proba=base_proba*p_down)
-            # connect bottom to top
-            nngt.generation.connect_nodes(net, bottom_neurons, neurons,
-                                          "distance_rule", scale=mixed_scale,
-                                          max_proba=base_proba*p_up)
+    print("Connect top to top")
+
+    def connect_top(top_pos_out, top_neurons_out, top_pos_in, top_neurons_in):
+        '''Connect top areas'''
+        for name, area in shape.non_default_areas.items():
+            contained = area.contains_neurons(top_pos_out)
+            neurons_out = top_neurons_out[contained]
+            contained = area.contains_neurons(top_pos_in)
+            neurons_in = top_neurons_in[contained]
+            other_top_in = [n for n in top_neurons_in if n not in neurons_in]
+            print(name)
+            # print(neurons)
+            if np.any(neurons_out):
+                # connect intra-area
+                nngt.generation.connect_nodes(net, neurons_out, neurons_in,
+                                              "distance_rule",
+                                              scale=top_scale,
+                                              max_proba=base_proba)
+                # connect between top areas (do it?)
+                # These are connection between top neurons seeded on
+                # different obstacles. Occur probably at the bottom, when
+                # both neurons' neurites descended.
+                nngt.generation.connect_nodes(net, neurons_out, other_top_in,
+                                              "distance_rule",
+                                              scale=mixed_scale,
+                                              max_proba=base_proba*p_other_up)
+
+    # Connect top excitatory to top excitatory
+    connect_top(top_pos_E, top_neurons_E, top_pos_E, top_neurons_E)
+
+    # Connect top excitatory to top inhibitory
+    connect_top(top_pos_E, top_neurons_E, top_pos_I, top_neurons_I)
+
+    # Connect top inhibotory to top excitatory
+    connect_top(top_pos_I, top_neurons_I, top_pos_E, top_neurons_E)
+
+    # Connect top inhibitory to top inhibitory
+    connect_top(top_pos_I, top_neurons_I, top_pos_I, top_neurons_I)
+
+    # Connect bottom neurons and top neurons
+    print("Connect top and bottom")
+
+    def connect_top_bottom(top_pos, top_neurons, bottom_neurons):
+        '''Connect top and bottom areas'''
+        for name, area in shape.non_default_areas.items():
+            contained = area.contains_neurons(top_pos_out)
+            neurons_top = top_neurons[contained]
+            print(name)
+            # print(neurons)
+            if np.any(neurons):
+                # connect intra-area
+
+                # connect the area top neurons to bottom and vice versa
+                # Connect top  to bottom excitatory
+                nngt.generation.connect_nodes(net,
+                                              neurons_top,
+                                              bottom_neurons,
+                                              "distance_rule",
+                                              scale=mixed_scale,
+                                              max_proba=base_prob*p_down)
+
+                # Connect bottom  to top
+                nngt.generation.connect_nodes(net,
+                                              bottom_neurons,
+                                              neurons_top,
+                                              "distance_rule",
+                                              scale=mixed_scale,
+                                              max_proba=base_prob*p_up)
+
+    # Connect top excitatory to bottom excitatory
+    connect_top_bottom(top_pos_E, top_neurons_E, bottom_neurons_E)
+    # Connect top excitatory to bottom inhibitory
+    connect_top_bottom(top_pos_E, top_neurons_E, bottom_neurons_I)
+    # Connect top inhibitory to bottom excitatory
+    connect_top_bottom(top_pos_I, top_neurons_I, bottom_neurons_E)
+    # Connect top inhibitory to bottom inhibitory
+    connect_top_bottom(top_pos_I, top_neurons_I, bottom_neurons_I)
 
     # By default synapses are static in net
     # Here we set the synaptic weigth
@@ -624,8 +700,8 @@ def no_obstacles(shape):
     Input:  shape : nngt spatial shape object to embed the neuron
     Output: net : nngt network
 
-    # Create a Spatial network and seed neurons
-    # Neurons are spread proportionaly to the area
+    Create a Spatial network and seed neurons
+    Neurons are spread proportionaly to the area
     '''
 
     total_area = shape.area
