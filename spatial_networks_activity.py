@@ -40,6 +40,10 @@ import matplotlib.pyplot as plt
 import nngt
 from nngt.geometry import Shape
 
+import pickle
+import pdb
+print('PDB DEBUGGER ACTIVATED')
+
 # nngt.use_backend("graph-tool")
 nngt.use_backend("networkx")
 
@@ -49,13 +53,14 @@ nngt.set_config("multithreading", False)
 nngt.seed(0)
 
 ''' Runtime options'''
-plot_distribution = False  # plot of the connectivity distribution
-plot_graphs = True  # graphic output of spatial network
+plot_distribution = True  # plot of the connectivity distribution
+plot_graphs = False  # graphic output of spatial network
 simulate_activity = False  # whether to run or not a NEST simlation on the model
 sim_duration = 2000  # simulation duration in ms
-plot_activity = True  # wheter to plot simulation activity
-animation_movie = True  # wheter to generate activity on map movie
-obstacles = True  # set to True for simulation with elevated obstacles
+plot_activity = False  # whetrer to plot simulation activity
+animation_movie = False  # wheter to generate activity on map movie
+save_spikes = False  # whether to save the spikes of all the neurons
+obstacles = False  # set to True for simulation with elevated obstacles
 
 print("\n###################\n Runtime options\n------------------")
 print("Plot of the spatial graph  : {0}".format(plot_graphs))
@@ -64,11 +69,13 @@ print("Run Nest simulation on the generated graph  : {0}"
 print("Simulation duration (if True)  : {0}".format(sim_duration))
 print("Plot simulation activity  : {0}".format(plot_activity))
 print("Generate activity on map movie  : {0}".format(animation_movie))
+print("Save spikes : {0}".format(save_spikes))
 print("Generate the graph with obstacles  : {0}".format(obstacles))
 
 ''' Neuron numbers'''
-density = 300e-6  # neuron density
-fraction_excitatory = .99
+#density = 300e-6  # neuron density
+density = 600e-6  # neuron density
+fraction_excitatory = .0005
 print("\n###################\n Neurons' population\n------------------")
 print("Neurons' density : {0} neurons per mm^2".format(density*1e6))
 print("Fraction of excitatory neurons : {0} %".format(fraction_excitatory))
@@ -80,7 +87,7 @@ print("Fraction of excitatory neurons : {0} %".format(fraction_excitatory))
 # initiate coordinated spontaneous activity in neuronal networks" Lonardoni et al PLOS 2016
 Lonardoni_excitatory_params = {
     'a': 2., 'E_L': -70., 'V_th': -50., 'b': 60., 'tau_w': 300.,
-    'V_reset': -58., 't_ref': 2., 'g_L': 12., 'C_m': 281., 'I_e': 300.
+    'V_reset': -58., 't_ref': 2., 'g_L': 12., 'C_m': 281., 'I_e': 255.
 }
 
 Lonardoni_inhibitory_params = {
@@ -92,7 +99,7 @@ params1 = Lonardoni_excitatory_params
 print "Neurons' parameters  : {0}".format(params1)
 
 # Synpases
-synaptic_weigth = 80. #set default synaptic weigth
+synaptic_weigth = 80.  #set default synaptic weigth
 print "Default synaptic weigth  : {0}".format(synaptic_weigth)
 
 # Create a circular shape to embed the neuros
@@ -101,7 +108,7 @@ print "Seeding region: disk of radius {0} microns".format(2500.)
 
 
 ####################################################################
-def activity_simulation(net, pop, sim_duration=2000):
+def activity_simulation(net, pop, sim_duration=sim_duration):
     '''
     Execute activity simulation on the generated graph
     --------------------------------------------------
@@ -141,7 +148,7 @@ def activity_simulation(net, pop, sim_duration=2000):
         print("avg_deg", average_degree)
 
         ns.set_minis(net, base_rate=syn_rate, weight_fraction=.4, gids=gids)
-        vm, vs = ns.monitor_nodes([1], "voltmeter")
+        vm, vs = ns.monitor_nodes([1, 10], "voltmeter")
         recorders, records = ns.monitor_groups(pop.keys(), net)
 
         nest.Simulate(sim_duration)
@@ -150,8 +157,8 @@ def activity_simulation(net, pop, sim_duration=2000):
             print("Plot raster")
             ns.plot_activity(vm, vs, network=net, show=False)
             ns.plot_activity(recorders, records, network=net, show=False,
-                             hist=true)
-
+                             hist=True)
+        plt.show()
         if animation_movie is True:
             print("Process animation")
             anim = nngt.plot.AnimationNetwork(recorders, net, resolution=0.1,
@@ -161,7 +168,11 @@ def activity_simulation(net, pop, sim_duration=2000):
             # ~ anim.save_movie("structured_bursting.mp4", fps=5, num_frames=50)
             anim.save_movie("structured_bursting.mp4", fps=15, interval=10)
 
-        plt.show()
+        if save_spikes is True :
+            print("Save sikes of neurons")
+            nngt.simulation.save_spikes("spikes_output.dat")
+
+
 #######################################################################
 def output_graphs(net, set1, set2, restrict, set1_title="", set2_title=""):
     '''
@@ -186,37 +197,61 @@ def output_graphs(net, set1, set2, restrict, set1_title="", set2_title=""):
     - degree distribution histograms
     - spatial connectivity maps
     '''
+    def connectivity(deg_type, nodes_list, fname):
+        ''' Plot connectivity distribution and save'''
+        nngt.plot.degree_distribution(
+            net, deg_type, num_bins='auto', nodes=nodes_list, show=False,
+            save=True, title=fname)
+
+        distrib = nngt.analysis.degree_distrib(net,
+                                               deg_type=deg_type[0],
+                                               node_list=set1,
+                                               num_bins='bayes')
+        fname = fname + "_"+ deg_type[0] + "_hist.pickle"
+        fichier = open(fname, 'wb')
+        pickle.dump(distrib, fichier)
+
     if plot_distribution is True:
         # Check the degree distribution
-        nngt.plot.degree_distribution(
-            net, ["in", "out"], num_bins='auto', nodes=set1, show=False,
-            title=set1_title)
-        nngt.plot.degree_distribution(
-            net, ["in"], num_bins='auto', nodes=set1, show=False,
-            title=set1_title)
-        nngt.plot.degree_distribution(
-            net, ["out"], num_bins='auto', nodes=set1, show=False,
-            title=set1_title)
+        # nngt.plot.degree_distribution(
+        #     net, ["in", "out"], num_bins='auto', nodes=set1, show=False,
+        #     title=set1_title)
+        # nngt.plot.degree_distribution(
+        #     net, ["in"], num_bins='auto', nodes=set1, show=False,
+        #     title=set1_title)
+        # nngt.plot.degree_distribution(
+        #     net, ["out"], num_bins='auto', nodes=set1, show=False,
+        #     title=set1_title)
+        # nngt.plot.degree_distribution(
+        #     net, ["in", "out"], num_bins='auto', nodes=set2, show=False,
+        #     title=set2_title)
+        # nngt.plot.degree_distribution(
+        #     net, ["in"], num_bins='auto', nodes=set2, show=False,
+        #     title=set2_title)
+        # nngt.plot.degree_distribution(
+        #     net, ["out"], num_bins='auto', nodes=set2, show=False,
+        #     title=set2_title)
 
-        nngt.plot.degree_distribution(
-            net, ["in", "out"], num_bins='auto', nodes=set2, show=False,
-            title=set2_title)
-        nngt.plot.degree_distribution(
-            net, ["in"], num_bins='auto', nodes=set2, show=False,
-            title=set2_title)
-        nngt.plot.degree_distribution(
-            net, ["out"], num_bins='auto', nodes=set2, show=False,
-            title=set2_title)
+        restrict_connectivity = [(["total"], set1, set1_title),
+                                 (["in"], set1, set1_title),
+                                 (["out"], set1, set1_title),
+                                 (["total"], set2, set2_title),
+                                 (["in"], set2, set2_title),
+                                 (["out"], set2, set2_title)]
+
+        for (deg_type, nodes_list, fname) in restrict_connectivity:
+            connectivity(deg_type, nodes_list, fname)
 
     if plot_graphs is True:
         ''' Plot the resulting network and subnetworks '''
         count = 1
-        for r_source, r_target in restrict:
+
+        for (r_source, r_target) in restrict:
             # print (r_source, r_target)
             nngt.plot.draw_network(net, nsize=7.5, ecolor="groups", ealpha=0.5,
                                    restrict_sources=r_source,
                                    restrict_targets=r_target, show=False,
-                                   title="Map "+str(count))
+                                   title=fname+str(count))
             count += 1
         plt.show()
         # fig, axis = plt.subplots()
@@ -232,13 +267,15 @@ def output_graphs(net, set1, set2, restrict, set1_title="", set2_title=""):
         # ~ nngt.plot.draw_network(net, nsize=7.5, ecolor="groups", ealpha=0.5, show=True)
 
 #########################################################################################
-def with_obstacles(shape, params={"height": 250., "width": 250.}, filling_fraction=0.4):
+def with_obstacles(shape, params={"height": 250., "width": 250.},
+				   filling_fraction=0.4):
     '''
     Network generation and simulation with obsactles
     ------------------------------------------------
     Input :   shape : nngt defined spatial shape
               params : dictionary with obstacles specifications
-              filling_fraction : float, fraction of the embedding shape filled with obstacles
+              filling_fraction : float, fraction of the embedding shape filled 
+              with obstacles
 
     Output:   nngt network of neurons
     '''
@@ -263,7 +300,7 @@ def with_obstacles(shape, params={"height": 250., "width": 250.}, filling_fracti
         num_top_list.append(num_top)
         num_top_total += num_top
 
-    num_neurons = num_bottom+num_top_total # Total number of neurons
+    num_neurons = num_bottom+num_top_total  # Total number of neurons
 
     print("Total number of neurons : {0}".format(num_neurons))
     print("Bottom neurons : {0}".format(num_bottom))
@@ -420,7 +457,7 @@ def with_obstacles_EI(shape, params={"height": 250., "width": 250.},
     bottom_area = np.sum([a.area for a in shape.default_areas.values()])
 
     num_bottom = int(density * bottom_area)
-    num_bottom_E = int(fraction_excitatory*num_neurons)
+    num_bottom_E = int(fraction_excitatory*num_bottom)
     num_bottom_I = num_bottom-num_bottom_E
 
     # compute number of neurons in each top obstacle according to its area
@@ -436,7 +473,7 @@ def with_obstacles_EI(shape, params={"height": 250., "width": 250.},
     for name, top_area in shape.non_default_areas.items():
         num_top = int(density * top_area.area)
         num_excitatory = int(fraction_excitatory*num_top)
-        num_inhibitory = num_neurons-num_excitatory
+        num_inhibitory = num_top-num_excitatory
         num_top_list.append(num_top)
         num_top_list_E.append(num_excitatory)
         num_top_list_I.append(num_inhibitory)
@@ -471,7 +508,7 @@ def with_obstacles_EI(shape, params={"height": 250., "width": 250.},
     # Create groups at the top
     def create_top_groups(group_name_prefix, num_top_list, model, params):
         ''' Creation of neurons groups on the top of bastacles'''
-        for num_top, (name, top_area) in,\
+        for num_top, (name, top_area) in\
                 zip(num_top_list, shape.non_default_areas.items()):
             # num_top = int(density * top_area.area)
             group_name = group_name_prefix + name
@@ -499,6 +536,7 @@ def with_obstacles_EI(shape, params={"height": 250., "width": 250.},
                                   groups=group_name,ntype=neuron_type), dtype=int)
         return bottom_pos, bottom_neurons
 
+    print("Seeding bottom neurons")
     bottom_pos_E, bottom_neurons_E = seed_bottom_neurons(num_bottom_E,
                                                          "bottom_E",
                                                          neuron_type=1)
@@ -506,33 +544,52 @@ def with_obstacles_EI(shape, params={"height": 250., "width": 250.},
                                                          "bottom_I",
                                                          neuron_type=-1)
 
-    def seed_top_neurons(grp_name_prefix, top_pos, top_neurons,
-                         top_grp_name_list, ntype):
-        ''' Seed top neurons'''
+    def seed_top_neurons(grp_name_prefix, ntype):
+        ''' Seed top neurons
+        ntype : neuron type +1 excitatory, -1 inhibitory
+        '''
+        top_pos = []
+        top_neurons = []
+        top_grp_name_list = []
+
         for name, top_area in shape.non_default_areas.items():
             grp_name = grp_name_prefix + name
+
             if grp_name in pop:
+                # print("Seeding group {}".format(grp_name))
                 # number of neurons in the top group
                 num_top = pop[grp_name].size
+                # print("of size :{0}".format(num_top))
                 # locate num_top neurons in the group area
                 top_pos_tmp = top_area.seed_neurons(num_top, soma_radius=15)
                 top_pos.extend(top_pos_tmp)
-                top_neurons.extend(net.new_node(num_top, positions=top_pos_tmp,
-                                                groups=grp_name, ntype=ntype))
-                top_grp_name_list.append(group_name)
+                seeded_neurons = net.new_node(num_top, positions=top_pos_tmp,
+                                              groups=grp_name, ntype=ntype)
+                # print seeded_neurons
+                # previous method return an int, not a list, in case of a
+                # single node, for extension of top_neurons list we need a list
+                if type(seeded_neurons) is not list:
+                    seeded_neurons = [seeded_neurons]
+                top_neurons.extend(seeded_neurons)
+                top_grp_name_list.append(grp_name)
+
         top_pos = np.array(top_pos)
         top_neurons = np.array(top_neurons, dtype=int)
+        return top_neurons, top_pos, top_grp_name_list
 
-    top_pos_E = []
-    top_neurons_E = []
-    top_groups_name_list_E = []
-    seed_top_neurons("top_E_", top_pos_E, top_neurons_E,
-                     top_groups_name_list_E, neuron_type=1)
-    top_pos_I = []
-    top_neurons_I = []
-    top_groups_name_list_I = []
-    seed_top_neurons("top_I_", top_pos_I, top_neurons_I,
-                     top_groups_name_list_I, neuron_type=-1)
+    print("Seeding top neurons")
+    # top_pos_E = []
+    # top_neurons_E = []
+    # top_groups_name_list_E = []
+    top_neurons_E,\
+        top_pos_E,\
+        top_groups_name_list_E = seed_top_neurons("top_E_", ntype=1)
+    # top_pos_I = []
+    # top_neurons_I = []
+    # top_groups_name_list_I = []
+    top_neurons_I,\
+        top_pos_I,\
+        top_groups_name_list_I = seed_top_neurons("top_I_", ntype=-1)
 
     # total top neurons groups list
     top_groups_name_list = top_groups_name_list_E.extend(top_groups_name_list_I)
@@ -544,12 +601,12 @@ def with_obstacles_EI(shape, params={"height": 250., "width": 250.},
     mixed_scale = 150.  # between top and bottom neurons both ways
 
     print "\n----------\n Connectivity"
-    print "top neurons connectivity characteristic distance {0}"
-    .format(top_scale)
-    print "bottom neurons connectivity characteristic distance {0}"
-    .format(bottom_scale)
-    print "mixed neurons connectivity characteristic distance {0}"
-    .format(mixed_scale)
+    print "top neurons connectivity characteristic distance {0}"\
+          .format(top_scale)
+    print "bottom neurons connectivity characteristic distance {0}"\
+          .format(bottom_scale)
+    print "mixed neurons connectivity characteristic distance {0}"\
+          .format(mixed_scale)
 
     # base connectivity probability
     base_proba = 3.
@@ -559,11 +616,11 @@ def with_obstacles_EI(shape, params={"height": 250., "width": 250.},
     print "Connectivity basic probability {0}".format(base_proba)
     print "Up connexion probability on one shape {0}".format(p_up)
     print "Down connexion probability {0}".format(p_down)
-    print "Between two different up shapes connexion probability {0}"
-    .format(p_other_up)
+    print "Between two different up shapes connexion probability {0}"\
+        .format(p_other_up)
 
     # connect neurons in bottom areas
-    print("Connect bottom areas")
+    print("\nConnect bottom areas")
 
     def connect_bottom(neurons_out, pos_out, neurons_in, pos_in,
                        scale=bottom_scale, max_proba=base_proba):
@@ -573,43 +630,50 @@ def with_obstacles_EI(shape, params={"height": 250., "width": 250.},
         '''
         for name, area in shape.default_areas.items():
             contained = area.contains_neurons(pos_out)
-            neurons_out = neurons_out[contained]
+            neurons_o = neurons_out[contained]
+            #print("Neurons out: {}".format(neurons_o))
             contained = area.contains_neurons(pos_in)
-            neurons_in = neurons_in[contained]
-
-            nngt.generation.connect_nodes(net, neurons_out, neurons_in,
+            neurons_i = neurons_in[contained]
+            #print("Neurons in: {}".format(neurons_i))
+            nngt.generation.connect_nodes(net, neurons_o, neurons_i,
                                           "distance_rule", scale=scale,
                                           max_proba=max_proba)
 
     # Connect bottom excitatory to bottom excitatory
+    print("Connect bottom E -> bottom E")
     connect_bottom(bottom_neurons_E, bottom_pos_E,
                    bottom_neurons_E, bottom_pos_E)
     # Connect bottom excitatory to bottom inhibitory
+    print("Connect bottom E -> bottom I")
     connect_bottom(bottom_neurons_E, bottom_pos_E,
                    bottom_neurons_I, bottom_pos_I)
     # Connect bottom inhibitory to bottom excitatory
+    print("Connect bottom I -> bottom E")
     connect_bottom(bottom_neurons_I, bottom_pos_I,
                    bottom_neurons_E, bottom_pos_E)
     # Connect bottom inhibitory to bottom inhibitory
+    print("Connect bottom I -> bottom I")
     connect_bottom(bottom_neurons_I, bottom_pos_I,
                    bottom_neurons_I, bottom_pos_I)
 
     # connect top areas
-    print("Connect top to top")
+    print("\nConnect top to top")
 
     def connect_top(top_pos_out, top_neurons_out, top_pos_in, top_neurons_in):
         '''Connect top areas'''
         for name, area in shape.non_default_areas.items():
+            print("Connexion out of : {}".format(name))
             contained = area.contains_neurons(top_pos_out)
-            neurons_out = top_neurons_out[contained]
+            neurons_o = top_neurons_out[contained]
+            print("Neurons out: {}".format(neurons_o))
             contained = area.contains_neurons(top_pos_in)
-            neurons_in = top_neurons_in[contained]
-            other_top_in = [n for n in top_neurons_in if n not in neurons_in]
-            print(name)
+            neurons_i = top_neurons_in[contained]
+            print("Neurons in: {}".format(neurons_i))
+            other_top_in = [n for n in top_neurons_in if n not in neurons_i]
             # print(neurons)
-            if np.any(neurons_out):
+            if np.any(neurons_o):
                 # connect intra-area
-                nngt.generation.connect_nodes(net, neurons_out, neurons_in,
+                nngt.generation.connect_nodes(net, neurons_o, neurons_i,
                                               "distance_rule",
                                               scale=top_scale,
                                               max_proba=base_proba)
@@ -617,21 +681,25 @@ def with_obstacles_EI(shape, params={"height": 250., "width": 250.},
                 # These are connection between top neurons seeded on
                 # different obstacles. Occur probably at the bottom, when
                 # both neurons' neurites descended.
-                nngt.generation.connect_nodes(net, neurons_out, other_top_in,
+                nngt.generation.connect_nodes(net, neurons_o, other_top_i,
                                               "distance_rule",
                                               scale=mixed_scale,
                                               max_proba=base_proba*p_other_up)
 
     # Connect top excitatory to top excitatory
+    print("Connect top E -> top E")
     connect_top(top_pos_E, top_neurons_E, top_pos_E, top_neurons_E)
 
     # Connect top excitatory to top inhibitory
+    print("Connect top E -> top I")
     connect_top(top_pos_E, top_neurons_E, top_pos_I, top_neurons_I)
 
     # Connect top inhibotory to top excitatory
+    print("Connect top I -> top E")
     connect_top(top_pos_I, top_neurons_I, top_pos_E, top_neurons_E)
 
     # Connect top inhibitory to top inhibitory
+    print("Connect top I -> top I")
     connect_top(top_pos_I, top_neurons_I, top_pos_I, top_neurons_I)
 
     # Connect bottom neurons and top neurons
@@ -665,12 +733,16 @@ def with_obstacles_EI(shape, params={"height": 250., "width": 250.},
                                               max_proba=base_prob*p_up)
 
     # Connect top excitatory to bottom excitatory
+    print("Connect top E -> bottom E")
     connect_top_bottom(top_pos_E, top_neurons_E, bottom_neurons_E)
     # Connect top excitatory to bottom inhibitory
+    print("\nConnect top E -> bottom I")
     connect_top_bottom(top_pos_E, top_neurons_E, bottom_neurons_I)
     # Connect top inhibitory to bottom excitatory
+    print("\nConnect top I -> bottom E")
     connect_top_bottom(top_pos_I, top_neurons_I, bottom_neurons_E)
     # Connect top inhibitory to bottom inhibitory
+    print("\nConnect top I -> bottom I")
     connect_top_bottom(top_pos_I, top_neurons_I, bottom_neurons_I)
 
     # By default synapses are static in net
@@ -683,10 +755,12 @@ def with_obstacles_EI(shape, params={"height": 250., "width": 250.},
     # neurons for outgoing links and a list of the groups containing
     # the neurons towards which the ource neurons connect.
     #
-    restrict = [(top_groups_name_list, top_groups_name_list),
-                ("bottom", top_groups_name_list),
-                (top_groups_name_list, "bottom"),
-                ("bottom", "bottom")]
+    restrict = [(top_groups_name_list_E, top_groups_name_list_E)]
+
+    # restrict = [(top_groups_name_list, top_groups_name_list),
+    #             ("bottom", top_groups_name_list),
+    #             (top_groups_name_list, "bottom"),
+    #             ("bottom", "bottom")]
     output_graphs(net, top_neurons, bottom_neurons, restrict)
 
     # Simulate with NEST
@@ -735,7 +809,7 @@ def no_obstacles(shape):
                                         soma_radius=15)
     inhibitory_neurons = np.array(net.new_node(num_inhibitory,
                                   positions=inhibitory_pos,
-                                  groups="inhibitory",ntype=-1),
+                                  groups="inhibitory", ntype=-1),
                                   dtype=int)
 
     # Establishment of the connectivity
@@ -753,24 +827,28 @@ def no_obstacles(shape):
     # connect bottom area
     for name, area in shape.default_areas.items():
         # excitatory to excitatory
+        print('E > E')
         nngt.generation.connect_nodes(net, excitatory_neurons,
                                       excitatory_neurons,
                                       "distance_rule",
                                       scale=connectivity_scale,
                                       max_proba=connectivity_proba)
         # excitatory to inhibitory
+        print('E > I')
         nngt.generation.connect_nodes(net, excitatory_neurons,
                                       inhibitory_neurons,
                                       "distance_rule",
                                       scale=connectivity_scale,
                                       max_proba=connectivity_proba)
         # inhibitory to inhibitory
+        print('I > I')
         nngt.generation.connect_nodes(net, inhibitory_neurons,
                                       inhibitory_neurons,
                                       "distance_rule",
                                       scale=connectivity_scale,
                                       max_proba=connectivity_proba)
         # inhobitory to excitatory
+        print('I > E')
         nngt.generation.connect_nodes(net, inhibitory_neurons,
                                       excitatory_neurons,
                                       "distance_rule",
@@ -781,11 +859,13 @@ def no_obstacles(shape):
     net.set_weights(synaptic_weigth)
 
     # Graphs output
+    print('Graphs output')
     output_graphs(net, inhibitory_neurons, excitatory_neurons,
                   [("excitatory", "excitatory"), ("inhibitory", "excitatory"),
                    ("inhibitory", "inhibitory"), ("excitatory", "inhibitory")],
                   "inhibitory neurons", "excitatory neurons")
     # Simulate with NEST
+    print('Activity simulation')
     activity_simulation(net, pop)
 
 ###############################################################################
@@ -793,6 +873,6 @@ def no_obstacles(shape):
 
 
 if obstacles is True:
-    with_obstacles(shape)
+    with_obstacles_EI(shape)
 else:
     no_obstacles(shape)
